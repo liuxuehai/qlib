@@ -8,12 +8,35 @@ Qlib provides two kinds of interfaces.
 The interface of (1) is `qrun XXX.yaml`.  The interface of (2) is script like this, which nearly does the same thing as `qrun XXX.yaml`
 """
 import qlib
+import pandas as pd
 from qlib.constant import REG_CN
 from qlib.utils import init_instance_by_config, flatten_dict
 from qlib.workflow import R
 from qlib.workflow.record_temp import SignalRecord, PortAnaRecord, SigAnaRecord
 from qlib.tests.data import GetData
 from qlib.tests.config import CSI300_BENCH, CSI300_GBDT_TASK
+
+
+def view(ba_rid, dataset):
+    # 加载实验结果
+    exp_name = "workflow"
+    from qlib.contrib.report import analysis_model, analysis_position
+    from qlib.data import D
+
+    recorder = R.get_recorder(recorder_id=ba_rid, experiment_name=exp_name)
+    print(recorder)
+    pred_df = recorder.load_object("pred.pkl")
+    report_normal_df = recorder.load_object("portfolio_analysis/report_normal_1day.pkl")
+    positions = recorder.load_object("portfolio_analysis/positions_normal_1day.pkl")
+    analysis_df = recorder.load_object("portfolio_analysis/port_analysis_1day.pkl")
+
+    analysis_position.report_graph(report_normal_df)
+    analysis_position.risk_analysis_graph(analysis_df, report_normal_df)
+    label_df = dataset.prepare("test", col_set="label")
+    label_df.columns = ["label"]
+    pred_label = pd.concat([label_df, pred_df], axis=1, sort=True).reindex(label_df.index)
+    analysis_position.score_ic_graph(pred_label)
+    analysis_model.model_performance_graph(pred_label)
 
 
 if __name__ == "__main__":
@@ -72,6 +95,7 @@ if __name__ == "__main__":
 
         # prediction
         recorder = R.get_recorder()
+        ba_rid = recorder.id
         sr = SignalRecord(model, dataset, recorder)
         sr.generate()
 
@@ -83,3 +107,6 @@ if __name__ == "__main__":
         # please refer to https://qlib.readthedocs.io/en/latest/component/recorder.html#record-template.
         par = PortAnaRecord(recorder, port_analysis_config, "day")
         par.generate()
+    
+    # Call view function to display results
+    view(ba_rid, dataset)
