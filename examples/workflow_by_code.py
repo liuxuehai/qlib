@@ -15,7 +15,8 @@ from qlib.workflow import R
 from qlib.workflow.record_temp import SignalRecord, PortAnaRecord, SigAnaRecord
 from qlib.tests.data import GetData
 from qlib.tests.config import CSI300_BENCH, CSI300_GBDT_TASK
-
+import plotly.graph_objects as go
+import os
 
 def view(ba_rid, dataset):
     # 加载实验结果
@@ -23,7 +24,9 @@ def view(ba_rid, dataset):
     from qlib.contrib.report import analysis_model, analysis_position
     from qlib.data import D
 
-    recorder = R.get_recorder(recorder_id=ba_rid, experiment_name=exp_name)
+    recorder = R.get_recorder(
+        recorder_id=ba_rid,
+     experiment_name=exp_name)
     print(recorder)
     pred_df = recorder.load_object("pred.pkl")
     report_normal_df = recorder.load_object("portfolio_analysis/report_normal_1day.pkl")
@@ -38,11 +41,39 @@ def view(ba_rid, dataset):
     analysis_position.score_ic_graph(pred_label)
     analysis_model.model_performance_graph(pred_label)
 
+def view2(ba_rid):
+    # 获取实验记录
+    exp_name = "workflow"  # 默认实验名称
+    recorder = R.get_exp(experiment_name=exp_name)[0]  # 获取第一个记录
+
+    report_df = pd.read_pickle(os.path.join(recorder.get_path(), "portfolio_analysis/report_normal_1day.pkl"))
+    analysis = recorder.load_object("portfolio_analysis/analysis.pkl")
+
+    # 累积回报
+    cum_return = report_df['excess_return_with_cost']
+    fig1 = go.Figure()
+    fig1.add_trace(go.Scatter(x=cum_return.index, y=cum_return.cumsum(), mode='lines', name='Cumulative Excess Return'))
+    fig1.update_layout(title='Cumulative Excess Return', xaxis_title='Date', yaxis_title='Return')
+    fig1.show()
+    fig1.write_image("cumulative_return.png")
+
+    # IC 时间序列
+    ic_series = analysis['ic']['mean']
+    fig2 = go.Figure()
+    fig2.add_trace(go.Scatter(x=ic_series.index, y=ic_series.values, mode='lines', name='Information Coefficient'))
+    fig2.update_layout(title='Information Coefficient Over Time', xaxis_title='Date', yaxis_title='IC')
+    fig2.show()
+    fig2.write_image("ic_series.png")
+
 
 if __name__ == "__main__":
     # use default data
     provider_uri = "~/.qlib/qlib_data/cn_data"  # target_dir
-    GetData().qlib_data(target_dir=provider_uri, region=REG_CN, exists_skip=True)
+    custom_output_dir = "~/.qlib/qlib_data/output"
+    GetData().qlib_data(
+        target_dir=provider_uri, 
+        region=REG_CN, 
+        exists_skip=True)
     qlib.init(provider_uri=provider_uri, region=REG_CN)
 
     model = init_instance_by_config(CSI300_GBDT_TASK["model"])
@@ -107,6 +138,11 @@ if __name__ == "__main__":
         # please refer to https://qlib.readthedocs.io/en/latest/component/recorder.html#record-template.
         par = PortAnaRecord(recorder, port_analysis_config, "day")
         par.generate()
+        # 自定义保存路径
+        os.makedirs(custom_output_dir, exist_ok=True)
+        recorder.save_objects(local_path=custom_output_dir)
+        # 其他结果手动保存
+        ## report_df.to_csv(os.path.join(custom_output_dir, "report.csv"))
     
     # Call view function to display results
-    view(ba_rid, dataset)
+    view2(ba_rid)
