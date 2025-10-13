@@ -17,6 +17,8 @@ from qlib.tests.data import GetData
 from qlib.tests.config import CSI300_BENCH, CSI300_GBDT_TASK
 import plotly.graph_objects as go
 import os
+from qlib.contrib.report.analysis_position.report import report_graph
+import plotly
 
 def view(ba_rid, dataset):
     # 加载实验结果
@@ -137,12 +139,16 @@ if __name__ == "__main__":
         # backtest. If users want to use backtest based on their own prediction,
         # please refer to https://qlib.readthedocs.io/en/latest/component/recorder.html#record-template.
         par = PortAnaRecord(recorder, port_analysis_config, "day")
-        par.generate()
-        # 自定义保存路径
-        os.makedirs(custom_output_dir, exist_ok=True)
-        recorder.save_objects(local_path=custom_output_dir)
+        artifact_dict = par.generate()
+        report_normal_df = artifact_dict['report_normal_1day.pkl']
+        positions_normal = artifact_dict['positions_normal_1day.pkl']
+        report_normal_df.to_pickle('/Users/liuping/学习/code5/qlib/output/report_normal_df.pkl')
+
+        ##report_normal_df = recorder.load_object("portfolio_analysis/report_normal_1day.pkl")
+        fig = report_graph(report_normal_df, show_notebook=False)
+        plotly.offline.plot(fig[0], filename="portfolio_report.html")
         # 其他结果手动保存
         ## report_df.to_csv(os.path.join(custom_output_dir, "report.csv"))
     
     # Call view function to display results
-    view2(ba_rid)
+    # view2(ba_rid)
