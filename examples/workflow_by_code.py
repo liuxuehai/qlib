@@ -20,52 +20,6 @@ import os
 from qlib.contrib.report.analysis_position.report import report_graph
 import plotly
 
-def view(ba_rid, dataset):
-    # 加载实验结果
-    exp_name = "workflow"
-    from qlib.contrib.report import analysis_model, analysis_position
-    from qlib.data import D
-
-    recorder = R.get_recorder(
-        recorder_id=ba_rid,
-     experiment_name=exp_name)
-    print(recorder)
-    pred_df = recorder.load_object("pred.pkl")
-    report_normal_df = recorder.load_object("portfolio_analysis/report_normal_1day.pkl")
-    positions = recorder.load_object("portfolio_analysis/positions_normal_1day.pkl")
-    analysis_df = recorder.load_object("portfolio_analysis/port_analysis_1day.pkl")
-
-    analysis_position.report_graph(report_normal_df)
-    analysis_position.risk_analysis_graph(analysis_df, report_normal_df)
-    label_df = dataset.prepare("test", col_set="label")
-    label_df.columns = ["label"]
-    pred_label = pd.concat([label_df, pred_df], axis=1, sort=True).reindex(label_df.index)
-    analysis_position.score_ic_graph(pred_label)
-    analysis_model.model_performance_graph(pred_label)
-
-def view2(ba_rid):
-    # 获取实验记录
-    exp_name = "workflow"  # 默认实验名称
-    recorder = R.get_exp(experiment_name=exp_name)[0]  # 获取第一个记录
-
-    report_df = pd.read_pickle(os.path.join(recorder.get_path(), "portfolio_analysis/report_normal_1day.pkl"))
-    analysis = recorder.load_object("portfolio_analysis/analysis.pkl")
-
-    # 累积回报
-    cum_return = report_df['excess_return_with_cost']
-    fig1 = go.Figure()
-    fig1.add_trace(go.Scatter(x=cum_return.index, y=cum_return.cumsum(), mode='lines', name='Cumulative Excess Return'))
-    fig1.update_layout(title='Cumulative Excess Return', xaxis_title='Date', yaxis_title='Return')
-    fig1.show()
-    fig1.write_image("cumulative_return.png")
-
-    # IC 时间序列
-    ic_series = analysis['ic']['mean']
-    fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(x=ic_series.index, y=ic_series.values, mode='lines', name='Information Coefficient'))
-    fig2.update_layout(title='Information Coefficient Over Time', xaxis_title='Date', yaxis_title='IC')
-    fig2.show()
-    fig2.write_image("ic_series.png")
 
 
 if __name__ == "__main__":
@@ -140,9 +94,13 @@ if __name__ == "__main__":
         # please refer to https://qlib.readthedocs.io/en/latest/component/recorder.html#record-template.
         par = PortAnaRecord(recorder, port_analysis_config, "day")
         artifact_dict = par.generate()
+        
+        
         report_normal_df = artifact_dict['report_normal_1day.pkl']
         positions_normal = artifact_dict['positions_normal_1day.pkl']
-        report_normal_df.to_pickle('/Users/liuping/学习/code5/qlib/output/report_normal_df.pkl')
+        
+        
+        ##report_normal_df.to_pickle('/Users/liuping/学习/code5/qlib/output/report_normal_df.pkl')
 
         ##report_normal_df = recorder.load_object("portfolio_analysis/report_normal_1day.pkl")
         fig = report_graph(report_normal_df, show_notebook=False)

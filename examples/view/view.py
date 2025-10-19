@@ -71,7 +71,14 @@ for recorder_id, recorder in recorders.items():
         print("⚠️ 策略表现一般：需关注风险控制")
     else:
         print("❌ 策略表现不佳：风险收益比不理想")
+    # analysis
+    analysis = dict()
+    analysis["excess_return_without_cost"] = risk_analysis(report_normal_df["return"] - report_normal_df["bench"])
+    analysis["excess_return_with_cost"] = risk_analysis(report_normal_df["return"] - report_normal_df["bench"] - report_normal_df["cost"])
+    analysis_df = pd.concat(analysis)  # type: pd.DataFrame
+    print(analysis_df)
 
+    
     # 加载持仓数据
     positions_normal = recorder.load_object("portfolio_analysis/positions_normal_1day.pkl")
     
@@ -81,8 +88,27 @@ for recorder_id, recorder in recorders.items():
     # 检查数据结构
     first_date = list(positions_normal.keys())[0]
     first_pos = positions_normal[first_date]
-    print(f"每日持仓股票数量示例: {first_pos}")
-    print(f"持仓数据列: {first_pos.columns.tolist()}")
+    print(f"持仓对象类型: {type(first_pos)}")
+    
+    # Position对象转换为DataFrame
+    if hasattr(first_pos, 'get_stock_weight_dict'):
+        # 获取股票权重字典
+        weight_dict = first_pos.get_stock_weight_dict()
+        print(f"每日持仓股票数量示例: {len(weight_dict)}")
+        print(f"权重字典示例: {list(weight_dict.items())[:3]}")
+    elif hasattr(first_pos, 'position'):
+        # 如果有position属性
+        pos_data = first_pos.position
+        print(f"Position数据类型: {type(pos_data)}")
+        if hasattr(pos_data, 'columns'):
+            print(f"持仓数据列: {pos_data.columns.tolist()}")
+    else:
+        print(f"Position对象属性: {[attr for attr in dir(first_pos) if not attr.startswith('_')]}")
+        # 尝试直接访问权重信息
+        if hasattr(first_pos, 'weight'):
+            print(f"权重数据类型: {type(first_pos.weight)}")
+        if hasattr(first_pos, '__dict__'):
+            print(f"Position对象内容: {list(first_pos.__dict__.keys())}")
     
     # 1. 持仓权重时间序列可视化
     def visualize_position_weights(positions_dict, top_n=10):
@@ -90,17 +116,41 @@ for recorder_id, recorder in recorders.items():
         
         # 提取权重数据
         weight_data = []
-        for date, pos_df in positions_dict.items():
-            if 'weight' in pos_df.columns:
-                for instrument in pos_df.index:
-                    weight_data.append({
-                        'date': pd.to_datetime(date),
-                        'instrument': instrument,
-                        'weight': pos_df.loc[instrument, 'weight']
-                    })
+        for date, position_obj in positions_dict.items():
+            try:
+                # 尝试不同的方法获取权重数据
+                if hasattr(position_obj, 'get_stock_weight_dict'):
+                    weight_dict = position_obj.get_stock_weight_dict()
+                    for instrument, weight in weight_dict.items():
+                        weight_data.append({
+                            'date': pd.to_datetime(date),
+                            'instrument': instrument,
+                            'weight': weight
+                        })
+                elif hasattr(position_obj, 'position') and hasattr(position_obj.position, 'items'):
+                    # 如果position是字典形式
+                    for instrument, weight in position_obj.position.items():
+                        weight_data.append({
+                            'date': pd.to_datetime(date),
+                            'instrument': instrument,
+                            'weight': weight
+                        })
+                elif hasattr(position_obj, '__dict__'):
+                    # 尝试从对象属性中提取
+                    pos_dict = position_obj.__dict__
+                    if 'position' in pos_dict and isinstance(pos_dict['position'], dict):
+                        for instrument, weight in pos_dict['position'].items():
+                            weight_data.append({
+                                'date': pd.to_datetime(date),
+                                'instrument': instrument,
+                                'weight': weight
+                            })
+            except Exception as e:
+                print(f"处理日期 {date} 的持仓数据时出错: {e}")
+                continue
         
         if not weight_data:
-            print("未找到权重数据列")
+            print("未找到权重数据")
             return None
             
         weight_df = pd.DataFrame(weight_data)
@@ -137,22 +187,35 @@ for recorder_id, recorder in recorders.items():
         """可视化持仓集中度"""
         
         concentration_data = []
-        for date, pos_df in positions_dict.items():
-            if 'weight' in pos_df.columns:
-                weights = pos_df['weight'].abs().sort_values(ascending=False)
+        for date, position_obj in positions_dict.items():
+            try:
+                # 获取权重数据
+                weights_dict = None
+                if hasattr(position_obj, 'get_stock_weight_dict'):
+                    weights_dict = position_obj.get_stock_weight_dict()
+                elif hasattr(position_obj, 'position') and isinstance(position_obj.position, dict):
+                    weights_dict = position_obj.position
+                elif hasattr(position_obj, '__dict__') and 'position' in position_obj.__dict__:
+                    weights_dict = position_obj.__dict__['position']
                 
-                # 计算集中度指标
-                top5_concentration = weights.head(5).sum()
-                top10_concentration = weights.head(10).sum()
-                hhi = (weights ** 2).sum()  # Herfindahl-Hirschman Index
-                
-                concentration_data.append({
-                    'date': pd.to_datetime(date),
-                    'top5_concentration': top5_concentration,
-                    'top10_concentration': top10_concentration,
-                    'hhi': hhi,
-                    'num_positions': len(weights[weights > 0.001])  # 权重>0.1%的持仓数
-                })
+                if weights_dict:
+                    weights = pd.Series(weights_dict).abs().sort_values(ascending=False)
+                    
+                    # 计算集中度指标
+                    top5_concentration = weights.head(5).sum()
+                    top10_concentration = weights.head(10).sum()
+                    hhi = (weights ** 2).sum()  # Herfindahl-Hirschman Index
+                    
+                    concentration_data.append({
+                        'date': pd.to_datetime(date),
+                        'top5_concentration': top5_concentration,
+                        'top10_concentration': top10_concentration,
+                        'hhi': hhi,
+                        'num_positions': len(weights[weights > 0.001])  # 权重>0.1%的持仓数
+                    })
+            except Exception as e:
+                print(f"处理日期 {date} 的集中度数据时出错: {e}")
+                continue
         
         if not concentration_data:
             return None
@@ -213,8 +276,18 @@ for recorder_id, recorder in recorders.items():
         # 收集所有股票代码
         all_instruments = set()
         for date in sampled_dates:
-            if 'weight' in positions_dict[date].columns:
-                all_instruments.update(positions_dict[date].index)
+            position_obj = positions_dict[date]
+            try:
+                if hasattr(position_obj, 'get_stock_weight_dict'):
+                    weights_dict = position_obj.get_stock_weight_dict()
+                    all_instruments.update(weights_dict.keys())
+                elif hasattr(position_obj, 'position') and isinstance(position_obj.position, dict):
+                    all_instruments.update(position_obj.position.keys())
+                elif hasattr(position_obj, '__dict__') and 'position' in position_obj.__dict__:
+                    all_instruments.update(position_obj.__dict__['position'].keys())
+            except Exception as e:
+                print(f"处理日期 {date} 的热力图数据时出错: {e}")
+                continue
         
         # 限制显示的股票数量
         if len(all_instruments) > 50:
@@ -223,9 +296,22 @@ for recorder_id, recorder in recorders.items():
             for instrument in all_instruments:
                 weights = []
                 for date in sampled_dates:
-                    pos_df = positions_dict[date]
-                    if instrument in pos_df.index and 'weight' in pos_df.columns:
-                        weights.append(abs(pos_df.loc[instrument, 'weight']))
+                    position_obj = positions_dict[date]
+                    try:
+                        weight = 0
+                        if hasattr(position_obj, 'get_stock_weight_dict'):
+                            weights_dict = position_obj.get_stock_weight_dict()
+                            weight = weights_dict.get(instrument, 0)
+                        elif hasattr(position_obj, 'position') and isinstance(position_obj.position, dict):
+                            weight = position_obj.position.get(instrument, 0)
+                        elif hasattr(position_obj, '__dict__') and 'position' in position_obj.__dict__:
+                            weight = position_obj.__dict__['position'].get(instrument, 0)
+                        
+                        if weight != 0:
+                            weights.append(abs(weight))
+                    except:
+                        continue
+                        
                 if weights:
                     avg_weights[instrument] = np.mean(weights)
             
@@ -239,10 +325,19 @@ for recorder_id, recorder in recorders.items():
         for instrument in top_instruments:
             row = []
             for date in sampled_dates:
-                pos_df = positions_dict[date]
-                if instrument in pos_df.index and 'weight' in pos_df.columns:
-                    row.append(pos_df.loc[instrument, 'weight'])
-                else:
+                position_obj = positions_dict[date]
+                try:
+                    weight = 0
+                    if hasattr(position_obj, 'get_stock_weight_dict'):
+                        weights_dict = position_obj.get_stock_weight_dict()
+                        weight = weights_dict.get(instrument, 0)
+                    elif hasattr(position_obj, 'position') and isinstance(position_obj.position, dict):
+                        weight = position_obj.position.get(instrument, 0)
+                    elif hasattr(position_obj, '__dict__') and 'position' in position_obj.__dict__:
+                        weight = position_obj.__dict__['position'].get(instrument, 0)
+                    
+                    row.append(weight)
+                except:
                     row.append(0)
             heatmap_data.append(row)
         
